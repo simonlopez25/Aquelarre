@@ -2,22 +2,23 @@
 
 LiteLLM owns the network call and its own retry/failover chain. This module owns the boundary:
 whatever happens on the wire comes back as a classified value, never as a raw exception.
+
+LiteLLM itself is imported inside the two functions that need it, because loading it costs
+several seconds and a process that never completes a request should not pay for it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
-import litellm
 import yaml
 
 from app.core.config import Settings, get_settings, resolve_env_references
 from app.core.security import sanitize_for_logs
+from app.infrastructure.errors import LLMError, LLMErrorKind
 
 logger: Final[logging.Logger] = logging.getLogger("app.litellm")
 
@@ -30,29 +31,6 @@ DEFAULT_NUM_RETRIES: Final[int] = 1
 DEFAULT_MODEL_NAME: Final[str] = "unknown"
 
 
-class LLMErrorKind(StrEnum):
-    """Failure classes the HTTP layer turns into status codes."""
-
-    RATE_LIMIT = "rate_limit"
-    AUTH = "auth"
-    TIMEOUT = "timeout"
-    NETWORK = "network"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class LLMError:
-    """A completion failure that is safe to write to the logs.
-
-    Attributes:
-        kind: Class used to choose the HTTP status.
-        detail: Redacted description, for internal logs only.
-    """
-
-    kind: LLMErrorKind
-    detail: str
-
-
 class LiteLLMClient:
     """Completes requests through a preconfigured `litellm.Router` without raising.
 
@@ -60,7 +38,7 @@ class LiteLLMClient:
         timeout: Seconds after which a request is abandoned and reported as a timeout.
     """
 
-    def __init__(self, router: litellm.Router, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(self, router: Any, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._router = router
         self.timeout = timeout
 
@@ -85,25 +63,12 @@ class LiteLLMClient:
                 self._router.acompletion(model=model, messages=messages, **kwargs),
                 timeout=self.timeout,
             )
-        except litellm.exceptions.RateLimitError as exc:
-            return False, _classify(LLMErrorKind.RATE_LIMIT, exc)
-        except litellm.exceptions.Timeout as exc:
-            return False, _classify(LLMErrorKind.TIMEOUT, exc)
-        except (
-            litellm.exceptions.AuthenticationError,
-            litellm.exceptions.PermissionDeniedError,
-        ) as exc:
-            return False, _classify(LLMErrorKind.AUTH, exc)
-        except litellm.exceptions.APIConnectionError as exc:
-            return False, _classify(LLMErrorKind.NETWORK, exc)
         except TimeoutError:
             return False, _timeout_error(self.timeout)
-        except litellm.exceptions.APIError as exc:
-            return False, _classify(LLMErrorKind.UNKNOWN, exc)
         except Exception as exc:
-            # Providers raise errors outside LiteLLM's APIError hierarchy; the transport layer
-            # must still receive a classified failure instead of a raw traceback.
-            return False, _classify(LLMErrorKind.UNKNOWN, exc)
+            # Providers raise well beyond LiteLLM's own hierarchy, and the transport layer must
+            # always receive a classified failure instead of a raw traceback.
+            return False, _classify(exc)
 
         logger.info("completion served by %s", sanitize_for_logs(model))
         return True, _as_dict(response)
@@ -115,10 +80,28 @@ def _timeout_error(timeout: float) -> LLMError:
     return LLMError(kind=LLMErrorKind.TIMEOUT, detail=detail)
 
 
-def _classify(kind: LLMErrorKind, exc: BaseException) -> LLMError:
+def _classify(exc: BaseException) -> LLMError:
+    kind = _kind_of(exc)
     detail = sanitize_for_logs(f"{type(exc).__name__}: {exc}")
     logger.warning("completion failed (%s): %s", kind.value, detail)
     return LLMError(kind=kind, detail=detail)
+
+
+def _kind_of(exc: BaseException) -> LLMErrorKind:
+    """Map a provider exception onto one of the known failure classes."""
+    import litellm
+
+    hierarchy: tuple[tuple[type[BaseException], LLMErrorKind], ...] = (
+        (litellm.exceptions.RateLimitError, LLMErrorKind.RATE_LIMIT),
+        (litellm.exceptions.Timeout, LLMErrorKind.TIMEOUT),
+        (litellm.exceptions.AuthenticationError, LLMErrorKind.AUTH),
+        (litellm.exceptions.PermissionDeniedError, LLMErrorKind.AUTH),
+        (litellm.exceptions.APIConnectionError, LLMErrorKind.NETWORK),
+    )
+    for exception_type, kind in hierarchy:
+        if isinstance(exc, exception_type):
+            return kind
+    return LLMErrorKind.UNKNOWN
 
 
 def _as_dict(response: Any) -> dict[str, Any]:
@@ -180,10 +163,6 @@ def _resolve_fallbacks(fallbacks: list[dict], dropped: set[str]) -> list[dict]:
     return kept
 
 
-def _apply_litellm_settings(settings: dict) -> None:
-    litellm.drop_params = bool(settings.get("drop_params", True))
-
-
 def create_client(
     settings: Settings | None = None,
     config_path: Path | None = None,
@@ -201,6 +180,8 @@ def create_client(
         OSError: if the configuration file cannot be read.
         yaml.YAMLError: if the configuration file is not valid YAML.
     """
+    import litellm
+
     current = settings or get_settings()
     config = _load_yaml(config_path or DEFAULT_CONFIG_PATH)
 
@@ -216,9 +197,8 @@ def create_client(
         num_retries=int(litellm_settings.get("num_retries", DEFAULT_NUM_RETRIES)),
         timeout=timeout,
     )
-    _apply_litellm_settings(litellm_settings)
-    logger.info(
-        "litellm router ready with %d providers",
-        len(model_list),
-    )
+    # Without it, a provider that rejects one unsupported parameter would fail the whole call.
+    litellm.drop_params = bool(litellm_settings.get("drop_params", True))
+
+    logger.info("litellm router ready with %d providers", len(model_list))
     return LiteLLMClient(router=router, timeout=timeout)

@@ -63,6 +63,38 @@ class RouteInfo(BaseModel):
     reason: str
 
 
+class ProviderStatus(BaseModel):
+    """Live quota snapshot of a single provider.
+
+    Attributes:
+        tokens: Tokens left in the bucket.
+        capacity: Bucket size in requests.
+        failure_count: Consecutive failures since the last success.
+        cooldown_seconds: How long the circuit breaker stays open.
+        circuit_open: Whether the breaker is currently forcing the provider off.
+        available: Whether a request may be sent right now.
+    """
+
+    tokens: float
+    capacity: int
+    failure_count: int
+    cooldown_seconds: float
+    circuit_open: bool
+    available: bool
+
+
+class HealthResponse(BaseModel):
+    """Readiness payload returned by `GET /health`.
+
+    Attributes:
+        status: Always `ok` once the process answers.
+        providers: Quota snapshot per registered provider.
+    """
+
+    status: str
+    providers: dict[str, ProviderStatus]
+
+
 class ChatResponse(BaseModel):
     """Successful completion body, OpenAI-shaped plus Aquelarre routing metadata.
 
