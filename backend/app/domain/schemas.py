@@ -43,7 +43,6 @@ class ChatRequest(BaseModel):
     stream: bool = False
 
     def to_llm_messages(self) -> list[dict[str, str]]:
-        """Return the conversation as the plain dictionaries LiteLLM consumes."""
         return [{"role": message.role, "content": message.content} for message in self.messages]
 
 

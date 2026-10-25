@@ -22,11 +22,6 @@ INVALID_REQUEST_EN: Final[str] = "Invalid request body: check messages, model an
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Attach every handler the application relies on.
-
-    Args:
-        app: Application instance being assembled.
-    """
     app.add_exception_handler(ApiError, _api_error_response)
     app.add_exception_handler(RequestValidationError, _validation_error_response)
     app.add_exception_handler(Exception, _unexpected_error_response)

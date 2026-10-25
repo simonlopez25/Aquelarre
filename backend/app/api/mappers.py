@@ -7,7 +7,12 @@ from collections.abc import Callable
 from typing import Any, Final
 from uuid import uuid4
 
-from app.core.errors import ApiError, provider_rejected, provider_unavailable, quota_exhausted
+from app.core.errors import (
+    ApiError,
+    provider_rejected,
+    provider_unavailable,
+    quota_exhausted,
+)
 from app.domain.router import RouteDecision
 from app.domain.schemas import (
     ChatRequest,
@@ -28,14 +33,6 @@ _ERROR_BY_KIND: Final[dict[LLMErrorKind, Callable[[], ApiError]]] = {
 
 
 def completion_options(body: ChatRequest) -> dict[str, Any]:
-    """Return the completion options the client actually set.
-
-    Args:
-        body: Validated request body.
-
-    Returns:
-        Keyword arguments forwarded to LiteLLM.
-    """
     options: dict[str, Any] = {}
     if body.temperature is not None:
         options["temperature"] = body.temperature
@@ -45,26 +42,10 @@ def completion_options(body: ChatRequest) -> dict[str, Any]:
 
 
 def error_for(kind: LLMErrorKind) -> ApiError:
-    """Map a provider failure class onto the bilingual error the client receives.
-
-    Args:
-        kind: Failure class reported by the LiteLLM client.
-
-    Returns:
-        The error to raise towards the transport layer.
-    """
     return _ERROR_BY_KIND.get(kind, provider_unavailable)()
 
 
 def to_health_response(status: dict[str, dict]) -> HealthResponse:
-    """Turn the quota snapshot into the typed health payload.
-
-    Args:
-        status: Output of `QuotaManager.status()`.
-
-    Returns:
-        The body served by `GET /health`.
-    """
     return HealthResponse(
         status="ok",
         providers={name: ProviderStatus(**values) for name, values in status.items()},
@@ -72,14 +53,6 @@ def to_health_response(status: dict[str, dict]) -> HealthResponse:
 
 
 def token_counts(payload: dict[str, Any]) -> tuple[int, int]:
-    """Return prompt and completion token counts reported upstream.
-
-    Args:
-        payload: Completion payload returned by the provider.
-
-    Returns:
-        A tuple of prompt tokens and completion tokens, defaulting to zero when unreported.
-    """
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return 0, 0
@@ -87,15 +60,6 @@ def token_counts(payload: dict[str, Any]) -> tuple[int, int]:
 
 
 def to_chat_response(payload: dict[str, Any], decision: RouteDecision) -> ChatResponse:
-    """Wrap an upstream completion in the OpenAI body plus Aquelarre routing metadata.
-
-    Args:
-        payload: Completion payload returned by the provider.
-        decision: Routing decision that selected this provider.
-
-    Returns:
-        The response body sent back to the extension.
-    """
     return ChatResponse(
         id=str(payload.get("id") or f"{COMPLETION_ID_PREFIX}{uuid4().hex}"),
         created=int(payload.get("created") or time.time()),

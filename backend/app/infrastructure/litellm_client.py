@@ -48,16 +48,6 @@ class LiteLLMClient:
         messages: list[dict],
         **kwargs: Any,
     ) -> tuple[bool, dict[str, Any] | LLMError]:
-        """Ask the provider chain for a completion.
-
-        Args:
-            model: LiteLLM model name, i.e. the Aquelarre provider identifier.
-            messages: Conversation as plain `{"role": ..., "content": ...}` dictionaries.
-            kwargs: Completion options such as `temperature` or `max_tokens`.
-
-        Returns:
-            `(True, payload)` on success, or `(False, LLMError)` describing the failure.
-        """
         try:
             response = await asyncio.wait_for(
                 self._router.acompletion(model=model, messages=messages, **kwargs),
@@ -88,7 +78,6 @@ def _classify(exc: BaseException) -> LLMError:
 
 
 def _kind_of(exc: BaseException) -> LLMErrorKind:
-    """Map a provider exception onto one of the known failure classes."""
     import litellm
 
     hierarchy: tuple[tuple[type[BaseException], LLMErrorKind], ...] = (
@@ -105,7 +94,6 @@ def _kind_of(exc: BaseException) -> LLMErrorKind:
 
 
 def _as_dict(response: Any) -> dict[str, Any]:
-    """Return the upstream completion as a plain dictionary."""
     if isinstance(response, dict):
         return response
     dump = getattr(response, "model_dump", None)
@@ -123,15 +111,6 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _resolve_models(entries: list[dict], settings: Settings) -> tuple[list[dict], set[str]]:
-    """Resolve placeholders and drop the providers whose credentials are absent.
-
-    Args:
-        entries: Raw `model_list` block from the YAML.
-        settings: Supplies fallbacks for placeholders that have a settings default.
-
-    Returns:
-        The usable model entries and the names of the providers that were dropped.
-    """
     defaults = settings.provider_env_defaults()
     usable: list[dict] = []
     dropped: set[str] = set()
@@ -151,7 +130,6 @@ def _resolve_models(entries: list[dict], settings: Settings) -> tuple[list[dict]
 
 
 def _resolve_fallbacks(fallbacks: list[dict], dropped: set[str]) -> list[dict]:
-    """Remove dropped providers from both ends of every fallback relation."""
     kept: list[dict] = []
     for entry in fallbacks:
         for primary, targets in entry.items():
@@ -167,19 +145,6 @@ def create_client(
     settings: Settings | None = None,
     config_path: Path | None = None,
 ) -> LiteLLMClient:
-    """Build the LiteLLM router from the YAML configuration.
-
-    Args:
-        settings: Settings supplying placeholder fallbacks. Defaults to the process settings.
-        config_path: Configuration file. Defaults to `backend/config/litellm_config.yaml`.
-
-    Returns:
-        A client ready to complete requests.
-
-    Raises:
-        OSError: if the configuration file cannot be read.
-        yaml.YAMLError: if the configuration file is not valid YAML.
-    """
     import litellm
 
     current = settings or get_settings()

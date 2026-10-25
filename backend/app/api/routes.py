@@ -38,21 +38,6 @@ async def chat_completions(
     response: Response,
     _token: str = Depends(verify_api_key),
 ) -> ChatResponse:
-    """Serve one OpenAI-compatible completion through the hybrid router.
-
-    Args:
-        request: Current request, used to reach the application state.
-        body: Validated OpenAI-shaped payload.
-        response: Response object whose headers carry the routing metadata.
-        _token: Bearer credential already validated by the security dependency.
-
-    Returns:
-        The completion body, including the provider that answered.
-
-    Raises:
-        ApiError: 400 for streaming, 503 when no provider has quota, or the status mapped
-            from the provider failure.
-    """
     if body.stream:
         raise streaming_unsupported()
 
@@ -92,14 +77,6 @@ async def chat_completions(
 
 @router.get("/health")
 def health(request: Request) -> HealthResponse:
-    """Report readiness plus the live quota of every provider.
-
-    Args:
-        request: Current request, used to reach the application state.
-
-    Returns:
-        A payload shaped for the Docker healthcheck; deliberately unauthenticated.
-    """
     quota = request.app.state.quota
     return to_health_response(quota.status())
 
@@ -109,7 +86,6 @@ def _decide(
     messages: list[dict[str, str]],
     requested_model: str | None,
 ) -> RouteDecision:
-    """Run the router, translating its exhaustion failure into the bilingual 503."""
     try:
         return hybrid_router.decide(messages, requested_model)
     except RuntimeError as exc:
@@ -124,7 +100,6 @@ def _record_usage(
     latency_ms: int,
     ok: bool,
 ) -> None:
-    """Persist one attempt; a storage failure must never break the response."""
     db.log_usage(
         provider=decision.provider,
         task_type=decision.task_type.value,

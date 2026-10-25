@@ -12,7 +12,6 @@ from typing import Any, Final
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# The dotenv file lives at the repository root so Docker Compose and local runs read the same file.
 REPO_ENV_FILE: Final[Path] = Path(__file__).resolve().parents[3] / ".env"
 
 # LiteLLM spells out placeholders as os.environ/NAME; the YAML is written in that same dialect.
@@ -41,11 +40,7 @@ STARTUP_ERROR_EN: Final[str] = (
 
 
 class Settings(BaseSettings):
-    """Environment-backed configuration for the whole backend.
-
-    Every value read from the environment lives here; no other module is allowed to call
-    `os.getenv`.
-    """
+    """Environment-backed configuration for the whole backend."""
 
     model_config = SettingsConfigDict(env_file=REPO_ENV_FILE, extra="ignore")
 
@@ -62,11 +57,6 @@ class Settings(BaseSettings):
     cooldown_seconds: int = 300
 
     def active_providers(self) -> list[str]:
-        """Return the provider names that can serve traffic with the current credentials.
-
-        Providers requiring a key are dropped silently when the key is absent, so a missing
-        optional credential never prevents startup.
-        """
         active = list(PROVIDERS_WITHOUT_KEY)
         if self.groq_api_key:
             active.append(GROQ_PROVIDER)
@@ -75,11 +65,6 @@ class Settings(BaseSettings):
         return active
 
     def provider_env_defaults(self) -> dict[str, str]:
-        """Return fallback values for the LiteLLM placeholders that have a settings default.
-
-        Environment variables always win; these only keep a provider alive when its URL or
-        model name was never exported, so an unset variable never disables a keyless provider.
-        """
         return {
             "OLLAMA_BASE_URL": self.ollama_base_url,
             "OLLAMA_MODEL": self.ollama_model,
@@ -90,15 +75,6 @@ class Settings(BaseSettings):
 
 
 def resolve_env_references(value: Any, defaults: Mapping[str, str]) -> tuple[Any, list[str]]:
-    """Replace every `os.environ/NAME` placeholder inside a LiteLLM config value.
-
-    Args:
-        value: Nested configuration loaded from YAML.
-        defaults: Values to use when the variable is absent from the environment.
-
-    Returns:
-        A tuple of the resolved value and the names that could not be resolved anywhere.
-    """
     if isinstance(value, str):
         return _resolve_string(value, defaults)
     if isinstance(value, dict):
@@ -158,11 +134,6 @@ def _format_startup_error(exc: ValidationError) -> str:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return the process-wide settings, aborting startup when they are invalid.
-
-    Raises:
-        SystemExit: if a required environment variable such as `AQUELARRE_API_KEY` is missing.
-    """
     try:
         return Settings()
     except ValidationError as exc:

@@ -53,14 +53,12 @@ class Usage(SQLModel, table=True):
 
 
 def _connect_args(database_url: str) -> dict[str, bool]:
-    """SQLite is shared across FastAPI worker threads, so cross-thread use must be allowed."""
     if not database_url.startswith(SQLITE_PREFIX):
         return {}
     return {"check_same_thread": False}
 
 
 def _ensure_parent_directory(database_url: str) -> None:
-    """Create the folder that will hold a file-backed SQLite database."""
     if not database_url.startswith(SQLITE_PREFIX):
         return
     raw_path = database_url.split(SQLITE_SEPARATOR, 1)[-1]
@@ -70,14 +68,6 @@ def _ensure_parent_directory(database_url: str) -> None:
 
 
 def init_db(database_url: str) -> None:
-    """Create the engine and the schema the first time the process starts.
-
-    Args:
-        database_url: SQLAlchemy URL, typically `sqlite:///./data/aquelarre.db`.
-
-    Raises:
-        SQLAlchemyError: when the database cannot be opened; startup must not continue silently.
-    """
     global _engine
     _ensure_parent_directory(database_url)
     _engine = create_engine(database_url, connect_args=_connect_args(database_url))
@@ -94,17 +84,6 @@ def log_usage(
     latency_ms: int,
     ok: bool,
 ) -> None:
-    """Persist one usage record without ever breaking the request being served.
-
-    Args:
-        provider: Provider that answered.
-        task_type: Task class the router detected.
-        mode: `auto` or `manual`.
-        tokens_in: Prompt tokens reported upstream.
-        tokens_out: Completion tokens reported upstream.
-        latency_ms: Wall-clock duration of the upstream call.
-        ok: Whether the call succeeded.
-    """
     if _engine is None:
         logger.warning("usage record skipped: database was not initialised")
         return

@@ -31,14 +31,6 @@ ALLOWED_HEADERS: Final[list[str]] = ["Authorization", "Content-Type"]
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Assemble a fully wired FastAPI application.
-
-    Args:
-        settings: Settings to build with. Defaults to the process-wide settings.
-
-    Returns:
-        The application, ready to be served by uvicorn.
-    """
     current = settings or get_settings()
     configure_logging(current.log_level)
 

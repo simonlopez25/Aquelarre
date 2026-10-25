@@ -17,14 +17,6 @@ class SecretRedactionFilter(logging.Filter):
     """Rewrite log records in place so no credential-looking token reaches a handler."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Sanitize the message, its arguments and any captured traceback.
-
-        Args:
-            record: The record about to be emitted.
-
-        Returns:
-            Always `True`; the record is only rewritten, never dropped.
-        """
         record.msg = sanitize_for_logs(str(record.msg))
         record.args = _sanitize_args(record.args)
         if record.exc_text:
@@ -33,7 +25,6 @@ class SecretRedactionFilter(logging.Filter):
 
 
 def _sanitize_value(value: object) -> object:
-    """Redact strings only, so numeric placeholders such as `%d` keep working."""
     if isinstance(value, str):
         return sanitize_for_logs(value)
     return value
@@ -53,11 +44,6 @@ def _resolve_level(level: str) -> int:
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """Install a stdout handler with secret redaction on the application namespaces.
-
-    Args:
-        level: Level name such as `INFO` or `DEBUG`. Unknown names fall back to `INFO`.
-    """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     handler.addFilter(SecretRedactionFilter())

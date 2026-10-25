@@ -44,12 +44,10 @@ class ApiError(Exception):
 
     @property
     def detail(self) -> dict[str, str]:
-        """Return the bilingual body sent as `detail` in the error response."""
         return {"code": self.code, "es": self.es, "en": self.en}
 
 
 def unauthorized() -> ApiError:
-    """Return the 401 raised when the caller has no valid Aquelarre API key."""
     return ApiError(
         status_code=401,
         code=UNAUTHORIZED_CODE,
@@ -60,7 +58,6 @@ def unauthorized() -> ApiError:
 
 
 def quota_exhausted() -> ApiError:
-    """Return the 503 raised when no provider has quota left."""
     return ApiError(
         status_code=503,
         code=QUOTA_EXHAUSTED_CODE,
@@ -70,27 +67,24 @@ def quota_exhausted() -> ApiError:
 
 
 def provider_rejected() -> ApiError:
-    """Return the 502 raised when a provider rejects our credentials."""
     return ApiError(
         status_code=502,
         code=PROVIDER_REJECTED_CODE,
-        es="Proveedor no disponible: clave del proveedor inválida.",
+        es=" Provider no disponible: clave del proveedor inválida.",
         en="Provider unavailable: invalid provider key.",
     )
 
 
 def provider_unavailable() -> ApiError:
-    """Return the 500 raised when a provider fails for an unspecified reason."""
     return ApiError(
         status_code=500,
         code=PROVIDER_UNAVAILABLE_CODE,
-        es="Proveedor no disponible: la petición no pudo completarse.",
+        es=" Provider no disponible: la petición no pudo completarse.",
         en="Provider unavailable: the request could not be completed.",
     )
 
 
 def streaming_unsupported() -> ApiError:
-    """Return the 400 raised when a client asks for streaming, which the MVP does not implement."""
     return ApiError(
         status_code=400,
         code=STREAMING_UNSUPPORTED_CODE,

@@ -32,7 +32,6 @@ DEFAULT_FAILURE_THRESHOLD: Final[int] = 3
 DEFAULT_COOLDOWN_SECONDS: Final[float] = 300.0
 NO_QUOTA_ERROR: Final[str] = "Ningún proveedor tiene cuota disponible en este momento"
 
-# Fenced blocks, definitions and imports are code; SQL and markup are too.
 _CODE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"```"
     r"|^\s*(?:def|class)\s+\w+"
@@ -65,7 +64,6 @@ class TaskType(StrEnum):
 
 
 def _content_of(message: dict) -> str:
-    """Flatten one message, including multimodal part lists, into plain text."""
     content = message.get("content")
     if isinstance(content, str):
         return content
@@ -75,17 +73,6 @@ def _content_of(message: dict) -> str:
 
 
 def classify_task(messages: list[dict]) -> TaskType:
-    """Classify a conversation without calling any model.
-
-    Heuristics, in order: a body over 6000 characters is long context, then code markers,
-    then reasoning markers, and everything else is general chat.
-
-    Args:
-        messages: Conversation as `{"role": ..., "content": ...}` dictionaries.
-
-    Returns:
-        The detected task class.
-    """
     text = "\n".join(_content_of(message) for message in messages)
     if len(text) > LONG_CONTEXT_CHARS:
         return TaskType.LONG_CONTEXT
@@ -123,39 +110,30 @@ class ProviderState:
     open_until: float = 0.0
 
     def refill(self) -> None:
-        """Restore tokens for the time elapsed since the previous top-up."""
         now = time.time()
         elapsed = max(0.0, now - self.last_refill)
         self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
         self.last_refill = now
 
     def is_available(self) -> bool:
-        """Report whether a request may be sent right now."""
         if self.open_until > time.time():
             return False
         self.refill()
         return self.tokens >= 1.0
 
     def consume(self) -> bool:
-        """Spend one token when the provider is usable.
-
-        Returns:
-            `True` when the token was taken, `False` when the bucket or breaker said no.
-        """
         if not self.is_available():
             return False
         self.tokens -= 1.0
         return True
 
     def record_failure(self) -> None:
-        """Count a failed call and open the circuit once the threshold is reached."""
         self.failure_count += 1
         if self.failure_count >= self.failure_threshold:
             self.open_until = time.time() + self.cooldown_seconds
             self.failure_count = 0
 
     def record_success(self) -> None:
-        """Clear the failure streak and close the circuit."""
         self.failure_count = 0
         self.open_until = 0.0
 
@@ -173,14 +151,6 @@ class QuotaManager:
         }
 
     def pick_available(self, chain: list[str]) -> str | None:
-        """Return the first provider of the chain that still has quota, spending one token.
-
-        Args:
-            chain: Provider names in preference order.
-
-        Returns:
-            The chosen provider, or `None` when every entry is exhausted or unknown.
-        """
         for name in chain:
             state = self.states.get(name)
             if state is not None and state.consume():
@@ -188,12 +158,6 @@ class QuotaManager:
         return None
 
     def report(self, name: str, ok: bool) -> None:
-        """Feed the outcome of a call back into the provider's circuit breaker.
-
-        Args:
-            name: Provider that answered.
-            ok: Whether the call succeeded.
-        """
         state = self.states.get(name)
         if state is None:
             return
@@ -203,7 +167,6 @@ class QuotaManager:
             state.record_failure()
 
     def status(self) -> dict[str, dict]:
-        """Return a JSON-safe snapshot of every provider for the health endpoint."""
         snapshot: dict[str, dict] = {}
         for name, state in self.states.items():
             state.refill()
@@ -260,18 +223,6 @@ class HybridRouter:
         self.chains = _limit_to_known_providers(chains or DEFAULT_CHAINS, quota.states)
 
     def decide(self, messages: list[dict], requested_model: str | None = None) -> RouteDecision:
-        """Pick the provider that should answer this request.
-
-        Args:
-            messages: Conversation as plain dictionaries.
-            requested_model: Provider forced by the client, or `null`.
-
-        Returns:
-            The provider, task class, mode and reason for the choice.
-
-        Raises:
-            RuntimeError: when no provider holds any quota at all.
-        """
         task_type = classify_task(messages)
         manual = self._decide_manual(task_type, requested_model)
         if manual is not None:
@@ -279,12 +230,6 @@ class HybridRouter:
         return self._decide_auto(task_type)
 
     def report_result(self, provider: str, ok: bool) -> None:
-        """Forward a call outcome to the quota manager.
-
-        Args:
-            provider: Provider that was attempted.
-            ok: Whether the call succeeded.
-        """
         self.quota.report(provider, ok)
 
     def _decide_manual(
