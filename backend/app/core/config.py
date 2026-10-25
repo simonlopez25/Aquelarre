@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import os
+import re
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The dotenv file lives at the repository root so Docker Compose and local runs read the same file.
 REPO_ENV_FILE: Final[Path] = Path(__file__).resolve().parents[3] / ".env"
+
+# LiteLLM spells out placeholders as os.environ/NAME; the YAML is written in that same dialect.
+_ENV_REFERENCE: Final[re.Pattern[str]] = re.compile(r"os\.env(?:iron)?/([A-Za-z_]\w*)")
 
 GROQ_PROVIDER: Final[str] = "groq-llama"
 GEMINI_PROVIDER: Final[str] = "gemini-flash"
@@ -67,6 +73,79 @@ class Settings(BaseSettings):
         if self.gemini_api_key:
             active.append(GEMINI_PROVIDER)
         return active
+
+    def provider_env_defaults(self) -> dict[str, str]:
+        """Return fallback values for the LiteLLM placeholders that have a settings default.
+
+        Environment variables always win; these only keep a provider alive when its URL or
+        model name was never exported, so an unset variable never disables a keyless provider.
+        """
+        return {
+            "OLLAMA_BASE_URL": self.ollama_base_url,
+            "OLLAMA_MODEL": self.ollama_model,
+            "OPENCODE_BASE_URL": self.opencode_base_url,
+            "OPENCODE_MODEL": self.opencode_model,
+            "KILO_BASE_URL": self.kilo_base_url,
+        }
+
+
+def resolve_env_references(value: Any, defaults: Mapping[str, str]) -> tuple[Any, list[str]]:
+    """Replace every `os.environ/NAME` placeholder inside a LiteLLM config value.
+
+    Args:
+        value: Nested configuration loaded from YAML.
+        defaults: Values to use when the variable is absent from the environment.
+
+    Returns:
+        A tuple of the resolved value and the names that could not be resolved anywhere.
+    """
+    if isinstance(value, str):
+        return _resolve_string(value, defaults)
+    if isinstance(value, dict):
+        return _resolve_mapping(value, defaults)
+    if isinstance(value, list):
+        return _resolve_sequence(value, defaults)
+    return value, []
+
+
+def _resolve_string(raw: str, defaults: Mapping[str, str]) -> tuple[str, list[str]]:
+    missing: list[str] = []
+
+    def substitute(match: re.Match[str]) -> str:
+        name = match.group(1)
+        resolved = os.environ.get(name) or defaults.get(name)
+        if not resolved:
+            missing.append(name)
+            return match.group(0)
+        return resolved
+
+    return _ENV_REFERENCE.sub(substitute, raw), missing
+
+
+def _resolve_mapping(
+    value: dict[Any, Any],
+    defaults: Mapping[str, str],
+) -> tuple[dict[Any, Any], list[str]]:
+    missing: list[str] = []
+    resolved: dict[Any, Any] = {}
+    for key, item in value.items():
+        resolved_item, item_missing = resolve_env_references(item, defaults)
+        resolved[key] = resolved_item
+        missing.extend(item_missing)
+    return resolved, missing
+
+
+def _resolve_sequence(
+    value: list[Any],
+    defaults: Mapping[str, str],
+) -> tuple[list[Any], list[str]]:
+    missing: list[str] = []
+    resolved: list[Any] = []
+    for item in value:
+        resolved_item, item_missing = resolve_env_references(item, defaults)
+        resolved.append(resolved_item)
+        missing.extend(item_missing)
+    return resolved, missing
 
 
 def _format_startup_error(exc: ValidationError) -> str:

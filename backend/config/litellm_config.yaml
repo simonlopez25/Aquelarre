@@ -1,0 +1,41 @@
+model_list:
+  - model_name: groq-llama
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: opencode-deepseek
+    litellm_params:
+      model: openai/os.environ/OPENCODE_MODEL
+      api_base: os.environ/OPENCODE_BASE_URL
+      api_key: sk-no-key-required
+
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: kilo-free
+    litellm_params:
+      # LiteLLM appends /chat/completions itself, so api_base must already end in /v1.
+      model: openai/kilo-auto/free
+      api_base: os.environ/KILO_BASE_URL
+      api_key: anonymous
+
+  - model_name: ollama-coder
+    litellm_params:
+      model: ollama_chat/os.environ/OLLAMA_MODEL
+      api_base: os.environ/OLLAMA_BASE_URL
+
+litellm_settings:
+  drop_params: true
+  num_retries: 1
+  request_timeout: 120
+
+router_settings:
+  routing_strategy: simple-shuffle
+  fallbacks:
+    - groq-llama: [opencode-deepseek, kilo-free, gemini-flash, ollama-coder]
+    - opencode-deepseek: [kilo-free, gemini-flash, ollama-coder]
+    - gemini-flash: [opencode-deepseek, ollama-coder]
+    - kilo-free: [ollama-coder]
